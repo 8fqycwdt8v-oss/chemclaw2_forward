@@ -1,0 +1,107 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "chemclaw2_forward"
+version = "0.1.0"
+description = "Meta-model MCP server for forward reaction and reaction condition prediction in organic chemistry, exposed via FastAPI/MCP for ChemClaw2."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "ChemClaw2 Forward Maintainers" }]
+
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "fastapi-mcp>=0.3",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "httpx>=0.27",
+    "numpy>=1.24",
+    "rdkit>=2024.3.1",
+]
+
+[project.optional-dependencies]
+# --- Phase A predictors (always on by default) ---
+reaction_t5 = [
+    "torch>=2.1",
+    "transformers>=4.40",
+    "sentencepiece>=0.2",
+    "accelerate>=0.27",
+]
+rxn_insight = [
+    "rxn-insight>=0.1.0",
+    "rxnmapper>=0.3.0",
+]
+
+# --- Phase B predictors ---
+t5chem = [
+    "torch>=2.1",
+    "transformers>=4.40",
+    "sentencepiece>=0.2",
+    # t5chem published as `t5chem` on PyPI; pinned loosely:
+    "t5chem>=0.1.0",
+]
+molecular_transformer = [
+    # OpenNMT-py legacy. Conflicts with newer transformers; isolate in its own env / subprocess worker.
+    "OpenNMT-py>=2.3,<3",
+    "torchtext<0.16",
+    "torch>=1.13,<2.3",
+]
+megan = [
+    "torch>=1.13",
+    "dgl>=1.1",
+    "dgllife>=0.3",
+]
+graphrxn = [
+    "torch>=1.13",
+    "torch-geometric>=2.4",
+]
+parrot = [
+    "torch>=2.0",
+    "transformers>=4.30",
+]
+reagents_mt = [
+    # Shares OpenNMT-py with molecular_transformer; co-install with that extra.
+    "OpenNMT-py>=2.3,<3",
+]
+two_stage_dnn = [
+    "torch>=2.0",
+    "scikit-learn>=1.3",
+]
+similarity = [
+    "drfp>=0.3.10",
+    "scikit-learn>=1.3",
+]
+
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+    "httpx>=0.27",
+]
+
+# Convenience set: everything that co-installs cleanly (excludes molecular_transformer + reagents_mt,
+# which pin to legacy torch and clash with reaction_t5).
+all = [
+    "chemclaw2_forward[reaction_t5,rxn_insight,t5chem,megan,graphrxn,parrot,two_stage_dnn,similarity]",
+]
+
+[project.scripts]
+chemclaw2-forward-server = "chemclaw2_forward.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/chemclaw2_forward"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+ignore = ["E501"]
