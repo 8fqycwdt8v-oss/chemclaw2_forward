@@ -1,8 +1,13 @@
 """Meta-model aggregators for forward and conditions predictions.
 
-Strategy: Borda-style weighted rank voting.
+Strategy: Borda-style weighted rank voting with optional Mixture-of-Experts
+gating by reaction class.
+
   - For each candidate (canonical product SMILES or canonical condition tuple),
-    sum a contribution from every model that ranked it: weight = prior * score * 1/rank.
+    sum a contribution from every model that ranked it:
+        weight = effective_prior(model, class) * model_score * 1/rank
+  - `effective_prior` looks up per-class trust priors first (when a class can
+    be assigned), falling back to global priors.
   - Sort candidates by total weight, descending.
   - Ties broken by higher vote count.
   - Returned consensus_score is renormalised so the top candidate scores ~1.0.
@@ -13,6 +18,7 @@ This requires no training data and degrades gracefully when models are missing.
 from __future__ import annotations
 
 import logging
+import math
 from collections import defaultdict
 from collections.abc import Iterable
 
@@ -24,6 +30,8 @@ from ..schemas import (
     ConditionsPrediction,
     ForwardPrediction,
 )
+from .classifier import CLASS_OTHER, classify_reaction
+from .trust_priors import effective_prior
 
 logger = logging.getLogger(__name__)
 
@@ -39,16 +47,33 @@ def aggregate_forward(
     per_model: dict[str, list[ForwardPrediction]],
     settings: Settings,
     top_k: int,
+    *,
+    reactants: str | None = None,
 ) -> list[AggregatedForwardPrediction]:
     """Borda-weighted voting across forward predictors.
 
     `per_model[model_name]` is that model's top-K predictions (rank 1 = best).
+    `reactants` is optional; when provided, the reaction is classified and
+    per-class trust priors are used (MoE gating).
     """
+    reaction_class: str | None = None
+    if reactants and settings.use_class_priors:
+        reaction_class = classify_reaction(reactants)
+        if reaction_class == CLASS_OTHER:
+            reaction_class = None
+
+    per_class = settings.model_trust_priors_by_class
+
     weights: dict[str, float] = defaultdict(float)
     voters: dict[str, set[str]] = defaultdict(set)
 
     for model_name, preds in per_model.items():
-        prior = settings.model_trust_priors.get(model_name, 0.5)
+        prior = effective_prior(
+            model_name,
+            reaction_class,
+            settings.model_trust_priors,
+            per_class,
+        )
         for p in preds:
             canon = _normalise_product(p.product_smiles)
             contribution = prior * p.score / p.rank
@@ -99,8 +124,6 @@ def _temperature_bucket(t: float | None) -> int | None:
     e.g. 25 and 28 would otherwise land in different bins). Negative
     temperatures stay correctly bucketed (-15 → -20, not -10).
     """
-    import math
-
     if t is None:
         return None
     return int(math.floor(t / 10.0)) * 10
@@ -110,6 +133,9 @@ def aggregate_conditions(
     per_model: dict[str, list[ConditionsPrediction]],
     settings: Settings,
     top_k: int,
+    *,
+    reactants: str | None = None,
+    product: str | None = None,
 ) -> list[AggregatedConditionsPrediction]:
     """Borda-weighted voting across condition predictors.
 
@@ -118,12 +144,25 @@ def aggregate_conditions(
     so that "the same recipe" gets reinforced, and bucket temperature into 10 °C
     bins to avoid trivial mismatches drowning out agreement.
     """
+    reaction_class: str | None = None
+    if reactants and settings.use_class_priors:
+        reaction_class = classify_reaction(reactants, product=product)
+        if reaction_class == CLASS_OTHER:
+            reaction_class = None
+
+    per_class = settings.model_trust_priors_by_class
+
     weights: dict[tuple, float] = defaultdict(float)
     voters: dict[tuple, set[str]] = defaultdict(set)
     temps_for_key: dict[tuple, list[float]] = defaultdict(list)
 
     for model_name, preds in per_model.items():
-        prior = settings.model_trust_priors.get(model_name, 0.5)
+        prior = effective_prior(
+            model_name,
+            reaction_class,
+            settings.model_trust_priors,
+            per_class,
+        )
         for p in preds:
             cats = _canon_set(p.catalysts)
             sols = _canon_set(p.solvents)

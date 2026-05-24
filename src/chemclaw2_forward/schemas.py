@@ -123,3 +123,19 @@ class HealthResponse(BaseModel):
     version: str
     n_forward_models: int
     n_conditions_models: int
+
+
+class ClassifyRequest(BaseModel):
+    reactants: str = Field(..., description="Dot-separated reactant SMILES.")
+    product: str | None = Field(default=None, description="Optional product SMILES for stricter rules.")
+
+
+class ClassifyResponse(BaseModel):
+    reaction_class: str
+    canonical_reactants: str
+    canonical_product: str | None
+
+
+class CacheClearResponse(BaseModel):
+    cleared_entries: int
+    enabled: bool

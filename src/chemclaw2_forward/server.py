@@ -13,8 +13,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 
 from . import __version__
+from .cache import get_cache
 from .config import get_settings
 from .meta.aggregator import aggregate_conditions, aggregate_forward
+from .meta.classifier import classify_reaction
 from .predictors import (
     discover_predictors,
     list_conditions,
@@ -23,6 +25,9 @@ from .predictors import (
 )
 from .preprocessing import canonical_multi_smiles, canonical_smiles
 from .schemas import (
+    CacheClearResponse,
+    ClassifyRequest,
+    ClassifyResponse,
     ConditionsPrediction,
     ConditionsRequest,
     ConditionsResponse,
@@ -132,6 +137,33 @@ def create_app() -> FastAPI:
             n_conditions_models=len(list_conditions()),
         )
 
+    @app.post(
+        "/classify",
+        response_model=ClassifyResponse,
+        operation_id="classify_reaction",
+        summary="Assign a coarse reaction class via SMARTS rules (used for MoE gating).",
+    )
+    async def classify(request: ClassifyRequest) -> ClassifyResponse:
+        canon_r = _safe_canon_reactants(request.reactants)
+        canon_p = _safe_canon_single(request.product) if request.product else None
+        klass = classify_reaction(request.reactants, product=request.product)
+        return ClassifyResponse(
+            reaction_class=klass,
+            canonical_reactants=canon_r,
+            canonical_product=canon_p,
+        )
+
+    @app.post(
+        "/cache/clear",
+        response_model=CacheClearResponse,
+        operation_id="clear_prediction_cache",
+        summary="Drop every cached prediction result.",
+    )
+    async def clear_cache() -> CacheClearResponse:
+        cache = get_cache()
+        n = cache.clear()
+        return CacheClearResponse(cleared_entries=n, enabled=cache.enabled)
+
     _mount_mcp(app)
     return app
 
@@ -196,7 +228,9 @@ async def _run_forward(request: ForwardRequest) -> ForwardResponse:
         per_model[p.name] = res
         succeeded += 1
 
-    consensus = aggregate_forward(per_model, settings, request.top_k)
+    consensus = aggregate_forward(
+        per_model, settings, request.top_k, reactants=request.reactants
+    )
     return ForwardResponse(
         consensus=consensus,
         per_model=per_model,
@@ -228,7 +262,13 @@ async def _run_conditions(request: ConditionsRequest) -> ConditionsResponse:
         per_model[p.name] = res
         succeeded += 1
 
-    consensus = aggregate_conditions(per_model, settings, request.top_k)
+    consensus = aggregate_conditions(
+        per_model,
+        settings,
+        request.top_k,
+        reactants=request.reactants,
+        product=request.product,
+    )
     return ConditionsResponse(
         consensus=consensus,
         per_model=per_model,

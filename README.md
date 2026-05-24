@@ -18,6 +18,7 @@ The server runs **many open-source reaction-prediction models in parallel** and 
 | `chemformer` | `MolecularAI/MolBART` | BART | Phase B — needs fine-tuned checkpoint |
 | `megan` | `molecule-one/megan` | Graph-edit attention | Phase B — needs repo + checkpoint |
 | `graphrxn` | `jidushanbojue/GraphRXN` | Graph NN | Phase B — needs repo + checkpoint |
+| `claude` | Anthropic API | LLM (few-shot prompted) | Phase C — needs `ANTHROPIC_API_KEY` |
 
 ### Reaction condition prediction (reactants + product → catalyst, solvent, reagent, temperature)
 
@@ -28,20 +29,39 @@ The server runs **many open-source reaction-prediction models in parallel** and 
 | `two_stage_dnn` | Chen & Li 2024 | Multi-label clf + ranker | Phase B — needs checkpoint |
 | `reagents_mt` | `Academich/reagents` | Molecular Transformer fine-tune | Phase B — needs checkpoint |
 | `askcos_condition` | MIT ASKCOS | NN trained on Reaxys | Phase B — needs `askcos-core` |
+| `claude` | Anthropic API | LLM (few-shot prompted) | Phase C — needs `ANTHROPIC_API_KEY` |
 
 ### Meta-model (aggregator)
 
-Borda-weighted rank voting:
-- Each candidate's weight = Σ over predictors of `model_trust_prior × predictor_score / rank`.
+Borda-weighted rank voting with optional Mixture-of-Experts gating by reaction class:
+
+- Each candidate's weight = Σ over predictors of `effective_prior(model, class) × predictor_score / rank`.
+- `effective_prior` looks up per-class priors when the reaction matches a SMARTS rule (`meta/classifier.py`), and falls back to global priors otherwise.
 - Candidates ranked by weight; ties broken by vote count.
 - For conditions, the voting unit is the whole `(catalysts, solvents, reagents, temp_bucket)` tuple — temperature is bucketed to 10 °C bins so trivial mismatches don't drown out agreement.
-- Trust priors are seeded from published benchmarks (`ReactionT5 v2 = 1.0`, MT = 0.9, …) and are overridable via config.
+- Global trust priors are seeded from published benchmarks (`ReactionT5 v2 = 1.0`, MT = 0.9, …) and are overridable via config or a JSON file written by `scripts/calibrate_priors.py`.
 
-### Out of scope for this branch
+### Phase C — LLM-based predictor (Claude via Anthropic API)
 
-- **LLM-based predictor**. The plan reserves `chem_llm.py` for a future Anthropic-API-backed `ClaudePredictor`. Local chemistry LLMs (ChemDFM, ChemLLM, Chemma) were researched but intentionally not implemented here per project decision.
-- **Benchmark-driven trust priors**. Current priors are seeded from published numbers; an automatic re-tuning step from `scripts/benchmark.py` results is left as future work.
-- **Mixture-of-Experts gating by reaction class**. A natural Phase D extension once trust priors are calibrated.
+`predictors/forward/claude.py` and `predictors/conditions/claude.py` add a `claude` predictor in each category that:
+
+- Calls the Anthropic API (`anthropic` Python SDK) with a chemistry system prompt.
+- Includes a configurable number of similarity-retrieved few-shot examples from a small built-in corpus (`predictors/llm_prompts.py`). Uses DRFP nearest-neighbor when the `drfp` extra is installed, else falls back to corpus order.
+- Parses a strict JSON output schema; tolerates fenced ```json blocks and embedded objects.
+- Configurable via env: `ANTHROPIC_API_KEY`, `CLAUDE_MODEL_ID` (default `claude-sonnet-4-6`), `CLAUDE_MAX_TOKENS`, `CLAUDE_N_EXAMPLES`.
+
+Install:
+
+```bash
+pip install -e '.[claude]'
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### Phase D — Caching, MoE gating, prior calibration
+
+- **Prediction cache** (`cache.py`): a `diskcache`-backed cache wraps every predictor's `.predict()` call. Keyed on `(predictor_name, canonical(reactants), top_k)` (or with product appended for conditions), so different SMILES spellings of the same reaction share a cache slot. Opt-in via `CACHE_ENABLED=true`; clear via `POST /cache/clear`.
+- **MoE gating by reaction class** (`meta/classifier.py`, `meta/trust_priors.py`): a small SMARTS-based classifier assigns a coarse class (amide formation, esterification, Suzuki coupling, …). The aggregator uses per-class priors when available and falls back to global priors otherwise. `POST /classify` is exposed for debugging.
+- **Prior calibration** (`scripts/calibrate_priors.py`): runs every registered predictor against a labelled dataset, computes per-class top-1 accuracy with Laplace smoothing, and writes the resulting JSON to `trust_priors_path` (default `~/.cache/chemclaw2_forward/trust_priors.json`). Loaded automatically on startup.
 
 ---
 
@@ -106,6 +126,8 @@ curl -s -X POST http://localhost:8765/predict/forward \
 | POST | `/predict/conditions` | `predict_reaction_conditions` | Meta-model condition prediction |
 | POST | `/predict/forward/{model}` | `predict_forward_single_model` | Query one forward predictor (debug) |
 | POST | `/predict/conditions/{model}` | `predict_conditions_single_model` | Query one conditions predictor (debug) |
+| POST | `/classify` | `classify_reaction` | Assign a SMARTS-rule reaction class (MoE gating) |
+| POST | `/cache/clear` | `clear_prediction_cache` | Drop every cached prediction result |
 | GET | `/models` | `list_available_models` | Enumerate registered & unavailable predictors |
 | GET | `/health` | `health_check` | Liveness probe |
 
@@ -157,20 +179,25 @@ python scripts/benchmark.py
 ```
 src/chemclaw2_forward/
   server.py                 # FastAPI app + fastapi-mcp mount
-  config.py                 # Pydantic Settings
+  config.py                 # Pydantic Settings (Anthropic, cache, MoE knobs)
   schemas.py                # Request / response / Prediction models
   preprocessing.py          # RDKit canonicalisation, reaction parsing
+  cache.py                  # diskcache-backed prediction cache (Phase D)
   predictors/
-    base.py                 # BasePredictor ABCs
+    base.py                 # BasePredictor ABCs (cache integration here)
     __init__.py             # Plugin registry + auto-discovery
-    forward/                # Forward-prediction model wrappers
-    conditions/             # Conditions-prediction model wrappers
+    llm_prompts.py          # Shared LLM prompt + few-shot helpers (Phase C)
+    forward/                # Forward-prediction model wrappers (incl. claude.py)
+    conditions/             # Conditions-prediction model wrappers (incl. claude.py)
   meta/
-    aggregator.py           # Borda-weighted voting
+    aggregator.py           # Borda-weighted voting + MoE gating
+    classifier.py           # SMARTS-based reaction class detector (Phase D)
+    trust_priors.py         # Per-class prior load/save + effective_prior lookup
 tests/
 scripts/
   download_models.py
   benchmark.py
+  calibrate_priors.py       # Benchmark-driven per-class prior calibration (Phase D)
 ```
 
 ---

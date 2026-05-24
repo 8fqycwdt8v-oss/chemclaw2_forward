@@ -1,0 +1,75 @@
+"""Tests for the SMARTS-based reaction classifier."""
+
+from __future__ import annotations
+
+import pytest
+
+pytest.importorskip("rdkit")
+
+from chemclaw2_forward.meta.classifier import (  # noqa: E402
+    CLASS_AMIDE_FORMATION,
+    CLASS_ESTERIFICATION,
+    CLASS_NITRATION,
+    CLASS_OTHER,
+    CLASS_REDUCTION,
+    CLASS_SUZUKI,
+    classify_reaction,
+)
+
+
+def test_amide_formation_from_acid_chloride():
+    klass = classify_reaction(
+        reactants="CC(=O)Cl.Nc1ccccc1",
+        product="CC(=O)Nc1ccccc1",
+    )
+    assert klass == CLASS_AMIDE_FORMATION
+
+
+def test_esterification():
+    klass = classify_reaction(
+        reactants="CC(=O)O.CCO",
+        product="CCOC(C)=O",
+    )
+    assert klass == CLASS_ESTERIFICATION
+
+
+def test_suzuki_coupling():
+    klass = classify_reaction(
+        reactants="Brc1ccccc1.OB(O)c1ccccc1",
+        product="c1ccc(-c2ccccc2)cc1",
+    )
+    assert klass == CLASS_SUZUKI
+
+
+def test_carbonyl_reduction():
+    klass = classify_reaction(
+        reactants="CC(C)=O.[Na+].[BH4-]",
+        product="CC(C)O",
+    )
+    assert klass == CLASS_REDUCTION
+
+
+def test_nitration():
+    klass = classify_reaction(
+        reactants="c1ccccc1.O=[N+]([O-])O",
+        product="O=[N+]([O-])c1ccccc1",
+    )
+    assert klass == CLASS_NITRATION
+
+
+def test_unknown_returns_other():
+    # Random nonsense reactants -> no rule fires
+    klass = classify_reaction(
+        reactants="C(F)(F)F.C#N",
+        product=None,
+    )
+    assert klass == CLASS_OTHER
+
+
+def test_classifier_ignores_invalid_smiles():
+    # Should not raise even if RDKit refuses one of the inputs
+    klass = classify_reaction(
+        reactants="CC(=O)Cl.Nc1ccccc1.not_a_smiles",
+        product="CC(=O)Nc1ccccc1",
+    )
+    assert klass == CLASS_AMIDE_FORMATION

@@ -57,3 +57,28 @@ def test_predict_single_model_404_unknown(client):
         json={"reactants": "CCO", "top_k": 3},
     )
     assert r.status_code == 404
+
+
+def test_classify_endpoint_known_class(client):
+    r = client.post(
+        "/classify",
+        json={"reactants": "CC(=O)Cl.Nc1ccccc1", "product": "CC(=O)Nc1ccccc1"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["reaction_class"] == "amide_formation"
+    assert body["canonical_product"] is not None
+
+
+def test_classify_endpoint_unknown_class_returns_other(client):
+    r = client.post("/classify", json={"reactants": "C(F)(F)F.C#N"})
+    assert r.status_code == 200
+    assert r.json()["reaction_class"] == "other"
+
+
+def test_cache_clear_endpoint(client):
+    r = client.post("/cache/clear")
+    assert r.status_code == 200
+    body = r.json()
+    assert "cleared_entries" in body
+    assert "enabled" in body

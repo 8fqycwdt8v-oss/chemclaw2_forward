@@ -70,6 +70,7 @@ _FORWARD_MODULES = [
     "chemclaw2_forward.predictors.forward.megan",
     "chemclaw2_forward.predictors.forward.graphrxn",
     "chemclaw2_forward.predictors.forward.chemformer",
+    "chemclaw2_forward.predictors.forward.claude",
 ]
 
 _CONDITIONS_MODULES = [
@@ -78,6 +79,7 @@ _CONDITIONS_MODULES = [
     "chemclaw2_forward.predictors.conditions.reagents_mt",
     "chemclaw2_forward.predictors.conditions.two_stage_dnn",
     "chemclaw2_forward.predictors.conditions.askcos_condition",
+    "chemclaw2_forward.predictors.conditions.claude",
 ]
 
 
