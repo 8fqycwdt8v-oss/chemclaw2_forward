@@ -39,6 +39,19 @@ def test_conditions_cache_keyed_on_both_sides(tmp_path: Path):
     assert miss is None
 
 
+def test_reagent_context_distinguishes_cache_keys(tmp_path: Path):
+    """A forward input that carries a reagent after '>' must NOT collide with the
+    bare-reactants form — they produce different predictions (regression for the
+    cache-key reagent-stripping bug)."""
+    cache = PredictionCache(tmp_path / "rgt", enabled=True, ttl_seconds=60)
+    with_reagent = "CC(=O)Cl.Nc1ccccc1>CCN(CC)CC>"
+    no_reagent = "CC(=O)Cl.Nc1ccccc1"
+    cache.set_forward("m", with_reagent, 3, [{"tag": "with_reagent"}])
+    # The bare-reactants form must miss (different chemistry → different key).
+    assert cache.get_forward("m", no_reagent, 3) is None
+    assert cache.get_forward("m", with_reagent, 3) == [{"tag": "with_reagent"}]
+
+
 def test_disabled_cache_is_noop(tmp_path: Path):
     cache = PredictionCache(tmp_path / "off", enabled=False, ttl_seconds=60)
     cache.set_forward("m", "CCO", 3, [{"x": 1}])

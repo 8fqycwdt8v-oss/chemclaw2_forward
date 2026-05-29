@@ -21,6 +21,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -88,6 +89,12 @@ async def _evaluate(records: list[dict], top_k: int) -> dict[str, dict[str, floa
 
 
 def main() -> int:
+    # Calibration must reflect each model's *current* behaviour, so disable the
+    # prediction cache before any Settings/cache singleton is constructed —
+    # otherwise stale cached predictions (from a prior model version) would skew
+    # the per-class priors. Set before the first get_settings() call below.
+    os.environ["CACHE_ENABLED"] = "false"
+
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = argparse.ArgumentParser()
     parser.add_argument(

@@ -59,9 +59,11 @@ class BaseForwardPredictor(BasePredictor):
             self._loaded = True
         result = await asyncio.to_thread(self.predict_sync, reactants, top_k)
 
-        cache.set_forward(
-            self.name, reactants, top_k, [p.model_dump() for p in result]
-        )
+        # Only cache non-empty results: an empty list usually signals a transient
+        # soft failure (e.g. an LLM returning unparseable JSON), and caching it
+        # would silently drop the predictor from the ensemble for the whole TTL.
+        if result:
+            cache.set_forward(self.name, reactants, top_k, [p.model_dump() for p in result])
         return result
 
 
@@ -89,7 +91,9 @@ class BaseConditionsPredictor(BasePredictor):
             self._loaded = True
         result = await asyncio.to_thread(self.predict_sync, reactants, product, top_k)
 
-        cache.set_conditions(
-            self.name, reactants, product, top_k, [p.model_dump() for p in result]
-        )
+        # See BaseForwardPredictor.predict: don't cache empty (likely-transient) results.
+        if result:
+            cache.set_conditions(
+                self.name, reactants, product, top_k, [p.model_dump() for p in result]
+            )
         return result

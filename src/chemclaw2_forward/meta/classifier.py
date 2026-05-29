@@ -87,11 +87,6 @@ _RULES: tuple[_Rule, ...] = (
         reactant_smarts=("[CX4][OX2H]", "[Cr,Mn]"),
         product_smarts=("[CX3]=[OX1]",),
     ),
-    # Generic nucleophilic substitution on alkyl halide
-    _Rule(
-        label=CLASS_NUCLEOPHILIC_SUBSTITUTION,
-        reactant_smarts=("[CX4][Cl,Br,I]", "[N-,O-,S-]"),
-    ),
     # Aromatic nitration
     _Rule(
         label=CLASS_NITRATION,
@@ -111,6 +106,14 @@ _RULES: tuple[_Rule, ...] = (
             "[$([CX3](=O)[OX2][CX4]),$([CX3](=O)[NX3]),$([CX2]#[NX1])]",
             "[OX2H2]",
         ),
+    ),
+    # Generic nucleophilic substitution on an alkyl halide. This rule has no
+    # product gate and matches broadly (any alkyl halide + anion), so it is
+    # placed LAST — it only fires as a fallback when no more-specific named
+    # reaction above matched, avoiding false positives on spectator halides.
+    _Rule(
+        label=CLASS_NUCLEOPHILIC_SUBSTITUTION,
+        reactant_smarts=("[CX4][Cl,Br,I]", "[N-,O-,S-]"),
     ),
 )
 

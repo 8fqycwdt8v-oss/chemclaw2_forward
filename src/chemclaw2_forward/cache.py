@@ -17,7 +17,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from .preprocessing import canonical_multi_smiles, canonical_smiles
+from .preprocessing import canonical_reaction_input, canonical_smiles
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +31,11 @@ def _hash_key(parts: list[str]) -> str:
 
 
 def _safe_canon_reactants(s: str) -> str:
+    # Canonicalise the full reaction input including any '>'-separated agents,
+    # so reagent context is part of the cache key (different reagents must not
+    # collide on the same cached result).
     try:
-        left = s.split(">")[0]
-        return canonical_multi_smiles(left)
+        return canonical_reaction_input(s)
     except ValueError:
         return s
 

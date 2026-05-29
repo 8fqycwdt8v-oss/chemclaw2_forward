@@ -72,6 +72,14 @@ async def evaluate(records: list[dict], top_k: int) -> dict:
     }
 
 
+def _load_records(path: Path) -> list[dict]:
+    """Load a JSON list (`.json`) or JSON-lines (`.jsonl`) dataset."""
+    text = path.read_text()
+    if path.suffix == ".jsonl":
+        return [json.loads(line) for line in text.splitlines() if line.strip()]
+    return json.loads(text)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -82,8 +90,7 @@ def main() -> int:
     parser.add_argument("--top-k", type=int, default=10)
     args = parser.parse_args()
 
-    text = args.dataset.read_text()
-    records = json.loads(text)
+    records = _load_records(args.dataset)
 
     results = asyncio.run(evaluate(records, args.top_k))
     print(json.dumps(results, indent=2))

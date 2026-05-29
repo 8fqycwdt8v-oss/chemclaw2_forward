@@ -66,6 +66,32 @@ def test_unknown_returns_other():
     assert klass == CLASS_OTHER
 
 
+def test_specific_class_wins_over_generic_substitution():
+    """A reaction that is both an alkyl-halide+nucleophile (generic SN) AND a
+    more specific named reaction should classify as the specific one, because
+    the broad nucleophilic_substitution rule is evaluated last.
+
+    Azidation of an alkyl bromide is a genuine SN reaction with no more-specific
+    rule, so it must still classify as nucleophilic_substitution."""
+    from chemclaw2_forward.meta.classifier import CLASS_NUCLEOPHILIC_SUBSTITUTION
+
+    klass = classify_reaction(
+        reactants="CCBr.[N-]=[N+]=[N-]",
+        product="CCN=[N+]=[N-]",
+    )
+    assert klass == CLASS_NUCLEOPHILIC_SUBSTITUTION
+
+
+def test_amide_not_shadowed_by_generic_substitution():
+    """An acid-chloride aminolysis (which also contains a halide + N) must
+    classify as amide_formation, not the generic substitution fallback."""
+    klass = classify_reaction(
+        reactants="CC(=O)Cl.Nc1ccccc1",
+        product="CC(=O)Nc1ccccc1",
+    )
+    assert klass == CLASS_AMIDE_FORMATION
+
+
 def test_classifier_ignores_invalid_smiles():
     # Should not raise even if RDKit refuses one of the inputs
     klass = classify_reaction(

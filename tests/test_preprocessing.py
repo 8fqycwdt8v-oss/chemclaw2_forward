@@ -9,6 +9,7 @@ rdkit = pytest.importorskip("rdkit")
 from chemclaw2_forward.preprocessing import (  # noqa: E402
     build_reaction_smiles,
     canonical_multi_smiles,
+    canonical_reaction_input,
     canonical_smiles,
     parse_reaction,
 )
@@ -41,6 +42,24 @@ def test_parse_reaction_reactants_only():
     r, a, p = parse_reaction("CC(=O)Cl.Nc1ccccc1")
     assert r == "CC(=O)Cl.Nc1ccccc1"
     assert a == p == ""
+
+
+def test_canonical_reaction_input_preserves_segments():
+    # Reactants-only and reactants-with-agents must canonicalise differently.
+    bare = canonical_reaction_input("CC(=O)Cl.Nc1ccccc1")
+    with_agent = canonical_reaction_input("CC(=O)Cl.Nc1ccccc1>CCN(CC)CC>")
+    assert bare != with_agent
+    # Agent segment is preserved (two '>' present).
+    assert with_agent.count(">") == 2
+
+
+def test_canonical_reaction_input_canonicalises_each_segment():
+    out = canonical_reaction_input("OCC>OCC>")
+    # both the reactant and agent segments canonicalise ethanol identically
+    left, agent, right = out.split(">")
+    assert left == canonical_smiles("CCO")
+    assert agent == canonical_smiles("CCO")
+    assert right == ""
 
 
 def test_build_reaction_smiles_canonicalises_both_sides():

@@ -82,8 +82,10 @@ class ReactionT5V2Forward(BaseForwardPredictor):
         for i, seq in enumerate(sequences):
             decoded = self._tokenizer.decode(seq, skip_special_tokens=True).strip()
             cleaned = _clean_product_string(decoded)
+            if not cleaned:
+                continue  # skip blank decodes — an empty SMILES is not a real product
             try:
-                product = canonical_smiles(cleaned) if cleaned else cleaned
+                product = canonical_smiles(cleaned)
             except ValueError:
                 continue
 

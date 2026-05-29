@@ -48,3 +48,20 @@ def build_reaction_smiles(reactants: str, product: str, agents: str = "") -> str
     a = canonical_multi_smiles(agents) if agents.strip() else ""
     p = canonical_multi_smiles(product)
     return f"{r}>{a}>{p}"
+
+
+def canonical_reaction_input(s: str) -> str:
+    """Canonicalise a possibly `>`-segmented reaction input string.
+
+    Splits on `>`, canonicalises the dot-separated SMILES in each segment, and
+    rejoins preserving the segment structure. Empty segments stay empty.
+
+    Unlike taking only `s.split(">")[0]`, this keeps reagent/agent context
+    distinct so two chemically different inputs (e.g. `A.B>reagent>` vs `A.B`)
+    do not collapse to the same string. Raises ValueError if any segment is
+    invalid.
+    """
+    segments = s.split(">")
+    canon = [canonical_multi_smiles(seg.strip()) if seg.strip() else "" for seg in segments]
+    return ">".join(canon)
+
